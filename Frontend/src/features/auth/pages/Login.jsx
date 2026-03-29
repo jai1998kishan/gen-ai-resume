@@ -1,18 +1,36 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import "../auth.form.scss";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useAuth } from "../hooks/useAuth";
 
 function Login() {
+  const navigate = useNavigate();
+
   const { loading, handleLogin } = useAuth();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [formData, setFormData] = useState({
+    email: "",
+    password: "",
+  });
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    handleLogin({ email, password });
-  };
+  const handleChange = useCallback((e) => {
+    const { name, value } = e.target;
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  }, []);
+
+  const handleSubmit = useCallback(
+    async (e) => {
+      e.preventDefault();
+      await handleLogin(formData);
+
+      navigate("/");
+    },
+    [formData, handleLogin, navigate],
+  );
 
   if (loading) {
     return (
@@ -32,8 +50,8 @@ function Login() {
             <input
               type="email"
               id="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={formData.email}
+              onChange={handleChange}
               name="email"
               placeholder="Enter your email address"
               required
@@ -45,8 +63,8 @@ function Login() {
             <input
               type="password"
               id="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={formData.password}
+              onChange={handleChange}
               name="password"
               placeholder="Enter your password"
               required
