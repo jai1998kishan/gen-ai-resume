@@ -10,14 +10,14 @@ const interviewReportSchema = z.object({
   matchScore: z
     .number()
     .describe(
-      "A score between 0 to 100 indicating how well the candidate's profile matches the job description",
+      "A score between 0 and 100 indicating how well the candidate's profile matches the job describe",
     ),
-  technicalQuestion: z
+  technicalQuestions: z
     .array(
       z.object({
         question: z
           .string()
-          .describe("The techinal question can asked in the interview"),
+          .describe("The technical question can be asked in the interview"),
         intention: z
           .string()
           .describe("The intention of interviewer behind asking this question"),
@@ -29,14 +29,14 @@ const interviewReportSchema = z.object({
       }),
     )
     .describe(
-      "Behavioral question that can be asked in the interview along with their intention and how to answer them",
+      "Technical questions that can be asked in the interview along with their intention and how to answer them",
     ),
-  behavioralQuestion: z
+  behavioralQuestions: z
     .array(
       z.object({
         question: z
           .string()
-          .describe("The techinal question can asked in the interview"),
+          .describe("The technical question can be asked in the interview"),
         intention: z
           .string()
           .describe("The intention of interviewer behind asking this question"),
@@ -48,44 +48,47 @@ const interviewReportSchema = z.object({
       }),
     )
     .describe(
-      "Behavioral question that can be asked in the interview along with their intention and how to answer them",
+      "Behavioral questions that can be asked in the interview along with their intention and how to answer them",
     ),
   skillGaps: z
     .array(
       z.object({
-        skill: z.string().describe("The skill which the condidate is lacking"),
+        skill: z.string().describe("The skill which the candidate is lacking"),
         severity: z
           .enum(["low", "medium", "high"])
           .describe(
-            "The Severity of this skill gap, i.e. how import is the skill is.",
+            "The severity of this skill gap, i.e. how important is this skill for the job and how much it can impact the candidate's chances",
           ),
       }),
     )
     .describe(
-      "List of skill gaps in the candidate's along with their severity",
+      "List of skill gaps in the candidate's profile along with their severity",
     ),
-
   preparationPlan: z
     .array(
       z.object({
         day: z
           .number()
           .describe("The day number in the preparation plan, starting from 1"),
-
         focus: z
           .string()
           .describe(
-            "The main focus of this day in the preparation plan, e.g data structures, system design, mock interviews",
+            "The main focus of this day in the preparation plan, e.g. data structures, system design, mock interviews etc.",
           ),
         tasks: z
           .array(z.string())
           .describe(
-            "List of tasks to be done on this day to follow the the preparation plan, e.g. read a specific book etc.",
+            "List of tasks to be done on this day to follow the preparation plan, e.g. read a specific book or article, solve a set of problems, watch a video etc.",
           ),
       }),
     )
     .describe(
-      "A day-wise preperation plan for the condidate to follow in order to prepare for the interview effectively",
+      "A day-wise preparation plan for the candidate to follow in order to prepare for the interview effectively",
+    ),
+  title: z
+    .string()
+    .describe(
+      "The title of the job for which the interview report is generated",
     ),
 });
 
@@ -94,24 +97,36 @@ async function generateInterviewReport({
   selfDescription,
   jobDescription,
 }) {
-  const prompt = `Generate an interview report for a candidate with the following details:
-        Resume: ${resume}
-        Self Description: ${selfDescription}
-        Job Description: ${jobDescription}
+  const prompt = `
+                  You are an AI that MUST return a STRICT JSON response.
 
-    
-    `;
+                  IMPORTANT RULES:
+                  - Return ONLY valid JSON
+                  - DO NOT include explanations
+                  - DO NOT include extra fields
+                  - Follow the schema EXACTLY
+                  - All fields are REQUIRED
+                  - matchScore must be between 0 and 100
+
+                  Schema:
+                  ${JSON.stringify(zodToJsonSchema(interviewReportSchema), null, 2)}
+
+                  Candidate Data:
+                  Resume: ${resume}
+                  Self Description: ${selfDescription}
+                  Job Description: ${jobDescription}
+          `;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
-      responseJsonSchema: zodToJsonSchema(interviewReportSchema),
+      responseSchema: zodToJsonSchema(interviewReportSchema),
     },
   });
 
-  console.log(response.text);
+  return JSON.parse(response.text);
 }
 
 module.exports = generateInterviewReport;
