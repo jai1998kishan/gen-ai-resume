@@ -1,95 +1,38 @@
-const { GoogleGenAI } = require("@google/genai");
+const Groq = require("groq-sdk");
 const z = require("zod");
-const { zodToJsonSchema } = require("zod-to-json-schema");
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GOOGLE_GENAI_API_KEY,
-});
+const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const interviewReportSchema = z.object({
-  matchScore: z
-    .number()
-    .describe(
-      "A score between 0 and 100 indicating how well the candidate's profile matches the job describe",
-    ),
-  technicalQuestions: z
-    .array(
-      z.object({
-        question: z
-          .string()
-          .describe("The technical question can be asked in the interview"),
-        intention: z
-          .string()
-          .describe("The intention of interviewer behind asking this question"),
-        answer: z
-          .string()
-          .describe(
-            "How to answer this question, what points to cover, what approach to take etc.",
-          ),
-      }),
-    )
-    .describe(
-      "Technical questions that can be asked in the interview along with their intention and how to answer them",
-    ),
-  behavioralQuestions: z
-    .array(
-      z.object({
-        question: z
-          .string()
-          .describe("The technical question can be asked in the interview"),
-        intention: z
-          .string()
-          .describe("The intention of interviewer behind asking this question"),
-        answer: z
-          .string()
-          .describe(
-            "How to answer this question, what points to cover, what approach to take etc.",
-          ),
-      }),
-    )
-    .describe(
-      "Behavioral questions that can be asked in the interview along with their intention and how to answer them",
-    ),
-  skillGaps: z
-    .array(
-      z.object({
-        skill: z.string().describe("The skill which the candidate is lacking"),
-        severity: z
-          .enum(["low", "medium", "high"])
-          .describe(
-            "The severity of this skill gap, i.e. how important is this skill for the job and how much it can impact the candidate's chances",
-          ),
-      }),
-    )
-    .describe(
-      "List of skill gaps in the candidate's profile along with their severity",
-    ),
-  preparationPlan: z
-    .array(
-      z.object({
-        day: z
-          .number()
-          .describe("The day number in the preparation plan, starting from 1"),
-        focus: z
-          .string()
-          .describe(
-            "The main focus of this day in the preparation plan, e.g. data structures, system design, mock interviews etc.",
-          ),
-        tasks: z
-          .array(z.string())
-          .describe(
-            "List of tasks to be done on this day to follow the preparation plan, e.g. read a specific book or article, solve a set of problems, watch a video etc.",
-          ),
-      }),
-    )
-    .describe(
-      "A day-wise preparation plan for the candidate to follow in order to prepare for the interview effectively",
-    ),
-  title: z
-    .string()
-    .describe(
-      "The title of the job for which the interview report is generated",
-    ),
+  matchScore: z.number(),
+  title: z.string(),
+  technicalQuestions: z.array(
+    z.object({
+      question: z.string(),
+      intention: z.string(),
+      answer: z.string(),
+    }),
+  ),
+  behavioralQuestions: z.array(
+    z.object({
+      question: z.string(),
+      intention: z.string(),
+      answer: z.string(),
+    }),
+  ),
+  skillGaps: z.array(
+    z.object({
+      skill: z.string(),
+      severity: z.enum(["low", "medium", "high"]),
+    }),
+  ),
+  preparationPlan: z.array(
+    z.object({
+      day: z.number(),
+      focus: z.string(),
+      tasks: z.array(z.string()),
+    }),
+  ),
 });
 
 async function generateInterviewReport({
@@ -98,35 +41,81 @@ async function generateInterviewReport({
   jobDescription,
 }) {
   const prompt = `
-                  You are an AI that MUST return a STRICT JSON response.
+You are an expert interviewer.
+Analyze the candidate and return ONLY valid JSON strictly matching this structure.
 
-                  IMPORTANT RULES:
-                  - Return ONLY valid JSON
-                  - DO NOT include explanations
-                  - DO NOT include extra fields
-                  - Follow the schema EXACTLY
-                  - All fields are REQUIRED
-                  - matchScore must be between 0 and 100
+================ REQUIRED JSON FORMAT =================
 
-                  Schema:
-                  ${JSON.stringify(zodToJsonSchema(interviewReportSchema), null, 2)}
-
-                  Candidate Data:
-                  Resume: ${resume}
-                  Self Description: ${selfDescription}
-                  Job Description: ${jobDescription}
-          `;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: zodToJsonSchema(interviewReportSchema),
-    },
-  });
-
-  return JSON.parse(response.text);
+{
+  "title": "string",
+  "matchScore": number,
+  "technicalQuestions": [
+    { "question": "string", "intention": "string", "answer": "string" }
+  ],
+  "behavioralQuestions": [
+    { "question": "string", "intention": "string", "answer": "string" }
+  ],
+  "skillGaps": [
+    { "skill": "string", "severity": "low | medium | high" }
+  ],
+  "preparationPlan": [
+    { "day": number, "focus": "string", "tasks": ["string"] }
+  ]
 }
 
-module.exports = generateInterviewReport;
+================ INPUT =================
+
+Resume:
+${resume}
+
+Self Description:
+${selfDescription}
+
+Job Description:
+${jobDescription}
+
+================ RULES =================
+- Output ONLY JSON (no text outside JSON)
+- Do NOT return arrays of strings — ALWAYS return objects
+- Ensure all fields exist and match the schema
+- Generate:
+  - 5–7 technical questions (with intention + answer)
+  - 4–6 behavioral questions (with intention + answer)
+  - 4–6 skill gaps with severity
+  - 7-day preparation plan (structured properly)
+`;
+
+  const response = await client.chat.completions.create({
+    model: "llama-3.3-70b-versatile",
+    messages: [{ role: "user", content: prompt }],
+    response_format: { type: "json_object" },
+    temperature: 0.7,
+  });
+
+  const rawText = response.choices[0].message.content.trim();
+  console.log("raw texxt...", rawText);
+
+  const parsed = JSON.parse(rawText);
+  console.log("parsed data..", parsed);
+
+  // Normalize tasks: [{ task: "..." }] → ["..."]
+  if (parsed.preparationPlan) {
+    parsed.preparationPlan = parsed.preparationPlan.map((day) => ({
+      ...day,
+      tasks: day.tasks.map((t) =>
+        typeof t === "object" ? t.task || Object.values(t)[0] : t,
+      ),
+    }));
+  }
+
+  // Normalize matchScore: 0.8 → 80
+  if (parsed.matchScore <= 1) {
+    parsed.matchScore = Math.round(parsed.matchScore * 100);
+  }
+
+  return interviewReportSchema.parse(parsed);
+
+  return interviewReportSchema.parse(parsed);
+}
+
+module.exports = generateInterviewReport; // ← this was missing
